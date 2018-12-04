@@ -99,15 +99,18 @@
 
 # import aoc
 import os
-# import re
-# import sys
+import re
+import sys
 # from operator import add
 # from operator import mul
 # from itertools import combinations
 
 # from collections import Counter
+import datetime
+import time
+from operator import itemgetter
 
-debug = True
+debug = False
 if debug:
     lines = []
     if os.path.exists('input_debug'):
@@ -117,4 +120,76 @@ else:
     lines = []
     with open('input', 'r') as f:
         lines = f.readlines()
-print(lines)
+
+
+class Event:
+    shift_start = "shift_start"
+    start_sleep = "start_sleep"
+    stop_sleep = "stop_sleep"
+
+    def __init__(self, epoch, date, description):
+        self.epoch = epoch
+        self.date = date
+        self.minute = int(re.match(".*:(\d+)", date).group(1))
+        self.description = description
+        if "#" in description:
+            self.guard = int(re.match(".*#(\d+) ", self.description).group(1))
+        else:
+            self.guard = None
+        if "Guard" in self.description:
+            self.event = Event.shift_start
+        elif "falls asleep" in self.description:
+            self.event = Event.start_sleep
+        elif "wakes up" in self.description:
+            self.event = Event.stop_sleep
+
+    def __str__(self):
+        return "event({} {} {} {})".format(self.epoch, self.minute, self.guard, self.event)
+
+events = {}
+for line in lines:
+    # print(line)
+    m = re.match("\[([^\]]+)\] (.*)$", line.strip())
+    date = m.group(1)
+
+    t = time.strptime(re.sub("1518", "1970", date), "%Y-%m-%d %H:%M")
+    epoch = int(time.mktime(t))
+    description = m.group(2)
+    e = Event(epoch, date, description)
+    if epoch in events:
+        print("FAIL: epoch in events")
+        sys.exit(1)
+    events[epoch] = e
+
+total_sleep = [0] * 60
+guard_sleep = {}
+guard = -1
+for epoch in sorted(events):
+    e = events[epoch]
+    if e.event == Event.shift_start:
+        guard = e.guard
+    elif e.event == Event.start_sleep:
+        sleep_start = e.minute
+        e.guard = guard
+    elif e.event == Event.stop_sleep:
+        sleep_end = e.minute
+        # print("sleep_start={}".format(sleep_start))
+        # print("sleep_end={}".format(sleep_end))
+        e.guard = guard
+        for i in range(sleep_start, sleep_end):
+            # print(i)
+            total_sleep[i] += 1
+            if guard not in guard_sleep:
+                guard_sleep[guard] = [0] * 60
+            guard_sleep[guard][i] += 1
+
+total_min_minute = max(enumerate(total_sleep), key=itemgetter(1))[0]
+best_time = -1
+for guard in guard_sleep:
+    (sleep_time_minute, sleep_time) = max(enumerate(guard_sleep[guard]), key=itemgetter(1))
+    if sleep_time > best_time:
+        best_time = sleep_time
+        best_time_minute = sleep_time_minute
+        max_guard = guard
+
+print("{} * {} = {}".format(max_guard, best_time_minute, max_guard * best_time_minute))
