@@ -105,6 +105,6 @@ venv.bak/
 
 # Advent of Code
 */input
-*/input_debug
+*/input_debug*
 */*.exe
 */*.pdb
