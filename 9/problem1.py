@@ -114,7 +114,7 @@ class Circle:
 
 def main():
     N = 471
-    last_marble = 72026
+    last_marble = 72026*100 # problem 1 (* 100 for problem 2)
     last_remove_score = -1
     c = Circle()
     elf_score = [0] * N
