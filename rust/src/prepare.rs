@@ -89,4 +89,54 @@ fn main() {
             std::process::exit(1);
         }
     }
+
+    // Create template day file if it doesn't exist
+    let day_file = format!("src/day{:02}.rs", day);
+    if !Path::new(&day_file).exists() {
+        let template = format!(r#"use aoc2018::read_input;
+
+fn part1(input: &str) -> i32 {{
+    // TODO: Implement part 1
+    0
+}}
+
+fn part2(input: &str) -> i32 {{
+    // TODO: Implement part 2
+    0
+}}
+
+fn main() {{
+    let input = read_input({});
+
+    println!("Part 1: {{}}", part1(&input));
+    println!("Part 2: {{}}", part2(&input));
+}}
+
+#[cfg(test)]
+mod tests {{
+    use super::*;
+
+    #[test]
+    fn test_part1() {{
+        let input = "";
+        assert_eq!(part1(input), 0);
+    }}
+
+    #[test]
+    fn test_part2() {{
+        let input = "";
+        assert_eq!(part2(input), 0);
+    }}
+}}
+"#, day);
+
+        fs::write(&day_file, template).unwrap_or_else(|e| {
+            eprintln!("Failed to write template file: {}", e);
+            std::process::exit(1);
+        });
+
+        println!("✓ Created template file {}", day_file);
+    } else {
+        println!("✓ Template file {} already exists, skipping", day_file);
+    }
 }
