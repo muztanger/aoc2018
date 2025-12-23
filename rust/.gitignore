@@ -1,0 +1,8 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Input files (optional - uncomment if you don't want to commit inputs)
+inputs/
