@@ -1,5 +1,5 @@
 use aoc2018::read_input;
-use std::collections::{VecDeque, HashMap};
+use std::collections::{VecDeque, HashMap, HashSet};
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 enum UnitType {
@@ -87,92 +87,114 @@ impl State {
             UnitType::Goblin => UnitType::Elf,
         };
         
-        // Find all in-range positions (empty squares adjacent to enemies)
-        let mut in_range = Vec::new();
+        // Find all target squares (empty squares adjacent to enemies)
+        let mut targets = HashSet::new();
         for unit in &self.units {
             if unit.hp > 0 && unit.unit_type == enemy_type {
                 for neighbor in self.neighbors(unit.pos) {
                     if self.is_open(neighbor) {
-                        in_range.push(neighbor);
+                        targets.insert(neighbor);
                     }
                 }
             }
         }
 
-        if in_range.is_empty() {
+        if targets.is_empty() {
             return None;
         }
 
-        // BFS from starting position
+        // BFS from starting position to find nearest target
         let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
         let mut distances = HashMap::new();
         
         queue.push_back(from);
+        visited.insert(from);
         distances.insert(from, 0);
 
+        let mut nearest_targets = Vec::new();
+        let mut nearest_dist = None;
+
         while let Some(pos) = queue.pop_front() {
             let dist = distances[&pos];
 
+            // If we've already found targets and this is farther, stop
+            if let Some(nd) = nearest_dist {
+                if dist > nd {
+                    break;
+                }
+            }
+
+            // Check if this is a target
+            if targets.contains(&pos) {
+                if nearest_dist.is_none() {
+                    nearest_dist = Some(dist);
+                }
+                nearest_targets.push(pos);
+                continue; // Don't explore past a target
+            }
+
+            // Explore neighbors in reading order
             for neighbor in self.neighbors(pos) {
-                if (self.is_open(neighbor) || neighbor == from) && !distances.contains_key(&neighbor) {
+                if !visited.contains(&neighbor) && self.is_open(neighbor) {
+                    visited.insert(neighbor);
                     distances.insert(neighbor, dist + 1);
                     queue.push_back(neighbor);
                 }
             }
         }
 
-        // Find reachable in-range positions
-        let mut reachable: Vec<((usize, usize), usize)> = in_range
-            .iter()
-            .filter_map(|&pos| distances.get(&pos).map(|&d| (pos, d)))
-            .collect();
-
-        if reachable.is_empty() {
+        if nearest_targets.is_empty() {
             return None;
         }
 
-        // Find minimum distance
-        let min_dist = reachable.iter().map(|(_, d)| *d).min().unwrap();
-        reachable.retain(|(_, d)| *d == min_dist);
+        // Choose target in reading order
+        nearest_targets.sort_by_key(|&(x, y)| (y, x));
+        let chosen_target = nearest_targets[0];
 
-        // Sort by reading order and pick the first
-        reachable.sort_by_key(|&((x, y), _)| (y, x));
-        let chosen_target = reachable[0].0;
+        // Now BFS from all neighbors of `from` to find which one gets to target first
+        // and in case of tie, pick the one in reading order
+        let neighbors = self.neighbors(from);
+        let mut best_neighbor = None;
+        let mut best_dist = None;
 
-        // Now find which neighbor of `from` to step to
-        // Do BFS backwards from chosen_target
-        let mut queue = VecDeque::new();
-        let mut distances = HashMap::new();
-        
-        queue.push_back(chosen_target);
-        distances.insert(chosen_target, 0);
+        for neighbor in neighbors {
+            if !self.is_open(neighbor) {
+                continue;
+            }
 
-        while let Some(pos) = queue.pop_front() {
-            let dist = distances[&pos];
+            // BFS from this neighbor to the target
+            let mut queue = VecDeque::new();
+            let mut visited = HashSet::new();
+            let mut distances = HashMap::new();
+            
+            queue.push_back(neighbor);
+            visited.insert(neighbor);
+            distances.insert(neighbor, 0);
 
-            for neighbor in self.neighbors(pos) {
-                if (self.is_open(neighbor) || neighbor == from) && !distances.contains_key(&neighbor) {
-                    distances.insert(neighbor, dist + 1);
-                    queue.push_back(neighbor);
+            while let Some(pos) = queue.pop_front() {
+                if pos == chosen_target {
+                    let dist = distances[&pos];
+                    if best_dist.is_none() || dist < best_dist.unwrap() || 
+                       (dist == best_dist.unwrap() && (neighbor.1, neighbor.0) < (best_neighbor.unwrap().1, best_neighbor.unwrap().0)) {
+                        best_dist = Some(dist);
+                        best_neighbor = Some(neighbor);
+                    }
+                    break;
+                }
+
+                let d = distances[&pos];
+                for next in self.neighbors(pos) {
+                    if !visited.contains(&next) && self.is_open(next) {
+                        visited.insert(next);
+                        distances.insert(next, d + 1);
+                        queue.push_back(next);
+                    }
                 }
             }
         }
 
-        // Find neighbor of `from` with minimal distance, ties by reading order
-        let mut candidates: Vec<(usize, (usize, usize))> = Vec::new();
-        for neighbor in self.neighbors(from) {
-            if !self.is_open(neighbor) { continue; }
-            if let Some(&d) = distances.get(&neighbor) {
-                candidates.push((d, neighbor));
-            }
-        }
-
-        if candidates.is_empty() {
-            return None;
-        }
-
-        candidates.sort_by_key(|&(d, (x, y))| (d, y, x));
-        Some(candidates[0].1)
+        best_neighbor
     }
 
     fn simulate_round(&mut self) -> bool {
@@ -251,7 +273,7 @@ impl State {
     }
 
     fn outcome(&self) -> i32 {
-        self.units.iter().filter(|u| u.hp > 0).map(|u| u.hp).sum()
+        self.units.iter().map(|u| u.hp).sum()
     }
 }
 
@@ -309,7 +331,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_part1_sample() {
+    fn test_part1_sample1() {
         let input = "\
 #######
 #.G...#

@@ -1,5 +1,5 @@
 use aoc2018::read_input;
-use std::collections::{VecDeque, HashMap};
+use std::collections::{VecDeque, HashMap, HashSet};
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 enum UnitType {
@@ -81,89 +81,99 @@ impl State {
         result
     }
 
-    fn find_move(&self, from: (usize, usize), unit_type: UnitType) -> Option<(usize, usize)> {
+    fn find_targets(&self, unit_type: UnitType) -> Vec<(usize, usize)> {
         let enemy_type = match unit_type {
             UnitType::Elf => UnitType::Goblin,
             UnitType::Goblin => UnitType::Elf,
         };
         
-        // Find all in-range positions (empty squares adjacent to enemies)
-        let mut in_range = Vec::new();
+        // Find all target squares in range of enemies
+        let mut targets = Vec::new();
         for unit in &self.units {
             if unit.hp > 0 && unit.unit_type == enemy_type {
                 for neighbor in self.neighbors(unit.pos) {
                     if self.is_open(neighbor) {
-                        in_range.push(neighbor);
+                        targets.push(neighbor);
                     }
                 }
             }
         }
+        targets
+    }
 
-        if in_range.is_empty() {
+    fn find_move(&self, from: (usize, usize), targets: &[(usize, usize)]) -> Option<(usize, usize)> {
+        if targets.is_empty() {
             return None;
         }
 
-        // BFS from starting position
+        // BFS to find nearest target
         let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
         let mut distances = HashMap::new();
         
         queue.push_back(from);
+        visited.insert(from);
         distances.insert(from, 0);
+
+        let mut reachable_targets = Vec::new();
 
         while let Some(pos) = queue.pop_front() {
             let dist = distances[&pos];
 
+            // Check if we found a target
+            if targets.contains(&pos) {
+                if reachable_targets.is_empty() || dist == distances[&reachable_targets[0]] {
+                    reachable_targets.push(pos);
+                } else {
+                    break; // Found targets at a shorter distance
+                }
+            }
+
+            // Explore neighbors
             for neighbor in self.neighbors(pos) {
-                if (self.is_open(neighbor) || neighbor == from) && !distances.contains_key(&neighbor) {
+                if !visited.contains(&neighbor) && (self.is_open(neighbor) || neighbor == from) {
+                    visited.insert(neighbor);
                     distances.insert(neighbor, dist + 1);
                     queue.push_back(neighbor);
                 }
             }
         }
 
-        // Find reachable in-range positions
-        let mut reachable: Vec<((usize, usize), usize)> = in_range
-            .iter()
-            .filter_map(|&pos| distances.get(&pos).map(|&d| (pos, d)))
-            .collect();
-
-        if reachable.is_empty() {
+        if reachable_targets.is_empty() {
             return None;
         }
 
-        // Find minimum distance
-        let min_dist = reachable.iter().map(|(_, d)| *d).min().unwrap();
-        reachable.retain(|(_, d)| *d == min_dist);
+        // Sort by reading order to pick the first target
+        reachable_targets.sort_by_key(|&(x, y)| (y, x));
+        let chosen_target = reachable_targets[0];
 
-        // Sort by reading order and pick the first
-        reachable.sort_by_key(|&((x, y), _)| (y, x));
-        let chosen_target = reachable[0].0;
-
-        // Now find which neighbor of `from` to step to
-        // Do BFS backwards from chosen_target
+        // Now find the first step from `from` toward `chosen_target`
+        // BFS backwards from target to source
         let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
         let mut distances = HashMap::new();
         
         queue.push_back(chosen_target);
+        visited.insert(chosen_target);
         distances.insert(chosen_target, 0);
 
         while let Some(pos) = queue.pop_front() {
             let dist = distances[&pos];
 
             for neighbor in self.neighbors(pos) {
-                if (self.is_open(neighbor) || neighbor == from) && !distances.contains_key(&neighbor) {
+                if !visited.contains(&neighbor) && (self.is_open(neighbor) || neighbor == from) {
+                    visited.insert(neighbor);
                     distances.insert(neighbor, dist + 1);
                     queue.push_back(neighbor);
                 }
             }
         }
 
-        // Find neighbor of `from` with minimal distance, ties by reading order
-        let mut candidates: Vec<(usize, (usize, usize))> = Vec::new();
+        // Find adjacent square to `from` with smallest distance to target
+        let mut candidates = Vec::new();
         for neighbor in self.neighbors(from) {
-            if !self.is_open(neighbor) { continue; }
-            if let Some(&d) = distances.get(&neighbor) {
-                candidates.push((d, neighbor));
+            if let Some(&dist) = distances.get(&neighbor) {
+                candidates.push((dist, neighbor));
             }
         }
 
@@ -171,7 +181,7 @@ impl State {
             return None;
         }
 
-        candidates.sort_by_key(|&(d, (x, y))| (d, y, x));
+        candidates.sort_by_key(|&(dist, (x, y))| (dist, y, x));
         Some(candidates[0].1)
     }
 
@@ -204,15 +214,16 @@ impl State {
                 .filter(|(_, u)| {
                     let (ux, uy) = u.pos;
                     let (px, py) = pos;
-                    (ux == px && (uy.abs_diff(py) == 1)) ||
-                    (uy == py && (ux.abs_diff(px) == 1))
+                    (ux == px && (uy + 1 == py || py + 1 == uy)) ||
+                    (uy == py && (ux + 1 == px || px + 1 == ux))
                 })
                 .map(|(i, _)| i)
                 .collect();
 
             // Move if not adjacent to enemy
             if adjacent_enemies.is_empty() {
-                if let Some(next_pos) = self.find_move(pos, unit_type) {
+                let targets = self.find_targets(unit_type);
+                if let Some(next_pos) = self.find_move(pos, &targets) {
                     self.units[unit_idx].pos = next_pos;
                 }
             }
@@ -224,8 +235,8 @@ impl State {
                 .filter(|(_, u)| {
                     let (ux, uy) = u.pos;
                     let (px, py) = pos;
-                    (ux == px && (uy.abs_diff(py) == 1)) ||
-                    (uy == py && (ux.abs_diff(px) == 1))
+                    (ux == px && (uy + 1 == py || py + 1 == uy)) ||
+                    (uy == py && (ux + 1 == px || px + 1 == ux))
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -251,7 +262,7 @@ impl State {
     }
 
     fn outcome(&self) -> i32 {
-        self.units.iter().filter(|u| u.hp > 0).map(|u| u.hp).sum()
+        self.units.iter().map(|u| u.hp).sum()
     }
 }
 
@@ -309,7 +320,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_part1_sample() {
+    fn test_part1_sample1() {
         let input = "\
 #######
 #.G...#
